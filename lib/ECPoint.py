@@ -1,4 +1,4 @@
-from FP import FP
+from .FP import FP
 
 class ECPoint:
 

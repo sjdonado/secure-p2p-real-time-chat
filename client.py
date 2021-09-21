@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 
 import socket
-from Crypto.Hash import HMAC, SHA256
-from threading import *
 import random
-from FP import FP
-from ECPoint import ECPoint
-from Parameters import Parameters
+from threading import *
+
 from Crypto.Cipher import AES
 
-class P:
-    def __init__(self,sock, identifier, password ,host, port, parameters):
+from lib.ECPoint import ECPoint
+from lib.Parameters import Parameters
+from lib.config import HOST, PORT, XA, XB, YA, YB
 
+class Client:
+    def __init__(self, sock, identifier, password , host, port, parameters):
         if sock is None:
             self.sock = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM)
         else:
             self.sock = sock
+
         self.host=host
         self.port=port
 
@@ -25,7 +26,6 @@ class P:
         self.parameters=parameters
 
     def encodeArray(self,arrays):
-
         L=[]
         for array in arrays:
             lt=len(array)
@@ -34,7 +34,6 @@ class P:
         return b''.join(L)
 
     def decodeArray(self,barr):
-
         L=[]
         i=0
         while i<len(barr):
@@ -43,6 +42,37 @@ class P:
             i=i+4+n
         return L
 
+    def connect(self, host, port):
+        self.sock.connect((host, port))
+        #c=self.receive()
+
+    def send(self, msg):
+        totalsent = 0
+        msglen=len(msg)
+        while totalsent < msglen:
+            sent = self.sock.send(msg[totalsent:])
+            if sent == 0:
+                self.sock.close()
+            totalsent = totalsent + sent
+
+    def receive(self):
+        bytes_recd = 0
+        chunk = self.sock.recv(4)
+        if chunk == b'':
+                self.sock.close()
+
+        bytes_recd = 0
+        msglen=int.from_bytes(chunk, byteorder='big')
+        chunks = []
+        while bytes_recd < msglen:
+            chunk = self.sock.recv(min(msglen - bytes_recd, 2048))
+
+            if chunk == b'':
+                self.sock.close()
+            chunks.append(chunk)
+            bytes_recd = bytes_recd + len(chunk)
+
+        return b''.join(chunks)
 
     def run(self):
         self.connect(self.host, self.port)
@@ -63,9 +93,7 @@ class P:
 
         array=self.encodeArray(L)
 
-
         array=self.encodeArray([array])
-
 
         self.send(array)
 
@@ -91,8 +119,8 @@ class P:
         mask=int('0xffffffffffffffffffffffffff', base=16)
         #print(keyblob.hex())
         vnonce=int.from_bytes(nonce, "big")
-        cont=True
-        while cont:
+
+        while True:
             print("Escriba un mensaje para enviar: Si escribe 'exit' finaliza")
             message=input()
 
@@ -106,59 +134,14 @@ class P:
             self.send(array)
 
             if message=='exit':
-                cont=False
-
+                break
 
         self.sock.close()
 
+if __name__ == '__main__':
+    identifier='Ricardo'
+    pw='Ricardo'
 
-    def connect(self, host, port):
-        self.sock.connect((host, port))
-        #c=self.receive()
-
-
-    def send(self, msg):
-        totalsent = 0
-        msglen=len(msg)
-        while totalsent < msglen:
-            sent = self.sock.send(msg[totalsent:])
-            if sent == 0:
-                self.sock.close()
-            totalsent = totalsent + sent
-
-
-    def receive(self):
-
-        bytes_recd = 0
-        chunk = self.sock.recv(4)
-        if chunk == b'':
-                self.sock.close()
-
-        bytes_recd = 0
-        msglen=int.from_bytes(chunk, byteorder='big')
-        chunks = []
-        while bytes_recd < msglen:
-            chunk = self.sock.recv(min(msglen - bytes_recd, 2048))
-
-            if chunk == b'':
-                self.sock.close()
-            chunks.append(chunk)
-            bytes_recd = bytes_recd + len(chunk)
-
-
-        return b''.join(chunks)
-
-host='192.168.0.10'
-port=8002
-identifier='Ricardo'
-pw='Ricardo'
-
-xa=57405313773341172191899518295435281771963996349930666421087959387814856388890
-ya=33669655811290356313238322911438248836339042889984235604869019563809171734975
-
-xb=35850454933918755761577077720947914337416491049626168726415941093274263625166
-yb=33735994584834933006143291579370680891499715161641162631920184782496067194454
-
-param=Parameters(xa,ya,xb,yb)
-client=P(None,identifier, pw ,host,port, param)
-client.run()
+    param = Parameters(XA, YA, XB, YB)
+    client=Client(None, identifier, pw , HOST, PORT, param)
+    client.run()
