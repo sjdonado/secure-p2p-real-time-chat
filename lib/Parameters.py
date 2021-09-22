@@ -1,11 +1,10 @@
-from Crypto.Hash import SHAKE256
 import random
+from Crypto.Hash import SHAKE256
 
 from .FP import FP
 from .ECPoint import ECPoint
 
 class Parameters:
-
     def __init__(self, xa=None, ya=None, xb=None, yb=None):
         self.p= 2**256 - 2**224 + 2**192 + 2**96 - 1
         self.a=FP(-3,self.p)
@@ -28,22 +27,20 @@ class Parameters:
         c=random.randint(1, param.q-1)
         return param.G.point_multiplication(c)
 
-    def get_k(self,pw,n=256):
+    def validate_point(self, ec_point):
+        three = FP(3,self.a.p)
+        y_r = ec_point.y ** 2
+        x_r = ec_point.x ** 3 - (three * ec_point.x) + self.b
+        if y_r != x_r or ECPoint(self.a, self.b, x=x_r, y=y_r).is_identity():
+            raise ValueError('Point not valid')
+
+    def get_unique_H(self, idp, inputs, n=32):
         h_256 = SHAKE256.new()
-        string=b'fixedString'
+        fixed_idp = bytes(f"fixed_idp_{idp}", 'utf-8')
 
-        h_256.update(string+pw)
+        h_256.update(fixed_idp)
+        for input in inputs:
+           h_256.update(input)
 
-        k = int.from_bytes(h_256.read(n), "big")
-        return k % self.q
-
-    def H(self,pw,idp,idq, ubytes, vbytes, wbytes, n=256):
-        h_256 = SHAKE256.new()
-
-        h_256.update(pw)
-        h_256.update(idp)
-        h_256.update(idq)
-        h_256.update(ubytes)
-        h_256.update(vbytes)
-        h_256.update(wbytes)
         return h_256.read(n)
+

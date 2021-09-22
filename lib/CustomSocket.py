@@ -1,5 +1,5 @@
 class CustomSocket:
-    def encodeArray(self,arrays):
+    def encodeArray(self, arrays):
         L=[]
         for array in arrays:
             lt=len(array)
@@ -7,7 +7,7 @@ class CustomSocket:
 
         return b''.join(L)
 
-    def decodeArray(self,barr):
+    def decodeArray(self, barr):
         L=[]
         i=0
         while i<len(barr):
@@ -43,3 +43,16 @@ class CustomSocket:
             bytes_recd = bytes_recd + len(chunk)
 
         return b''.join(chunks)
+
+    def send_array(self, L):
+        arr = self.encodeArray(L)
+        self.send(self.encodeArray([arr]))
+
+    def receive_array(self):
+        data = self.receive()
+        return self.decodeArray(data)
+
+    def send_message(self, message, to_bytes=True):
+        if to_bytes:
+            message = bytes(message, 'utf-8')
+        self.send(self.encodeArray([message]))

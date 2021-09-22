@@ -39,7 +39,7 @@ def generate_server_config(id_client, id_server, client_password, count=50000):
 
     pi_0 = int.from_bytes(h[:pi_size], 'big') % param.q
     pi_1 = int.from_bytes(h[pi_size:], 'big') % param.q
-    c = int.from_bytes(param.G.point_multiplication(pi_1).to_bytes(), 'big')
+    c = param.G.point_multiplication(pi_1).to_bytes().hex()
 
     if os.path.exists(SERVER_CONFIG_PATH):
         with open(SERVER_CONFIG_PATH) as server_config_f:
@@ -51,7 +51,7 @@ def generate_server_config(id_client, id_server, client_password, count=50000):
         'id_client': id_client,
         'id_server': id_server,
         'pi_0': pi_0,
-        'pi_0': pi_1,
+        'pi_1': pi_1,
         'c': c
     })
 
