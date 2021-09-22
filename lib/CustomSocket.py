@@ -29,7 +29,7 @@ class CustomSocket:
         bytes_recd = 0
         chunk = self.sock.recv(4)
         if chunk == b'':
-                self.sock.close()
+            self.sock.close()
 
         bytes_recd = 0
         msglen=int.from_bytes(chunk, byteorder='big')

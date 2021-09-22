@@ -9,7 +9,7 @@ from Crypto.Cipher import AES
 from lib.ECPoint import ECPoint
 from lib.Parameters import Parameters
 from lib.CustomSocket import CustomSocket
-from lib.config import HOST, PORT, XA, XB, YA, YB
+from lib.config import HOST, PORT, XA, XB, YA, YB, SERVER_CONFIG_PATH
 
 class Client(CustomSocket):
     def __init__(self, sock, identifier, password , host, port, parameters):
@@ -25,6 +25,7 @@ class Client(CustomSocket):
         self.password=password
         self.identifier=identifier
         self.parameters=parameters
+        self.server_config = self.read_server_config(SERVER_CONFIG_PATH)
 
     def connect(self, host, port):
         self.sock.connect((host, port))

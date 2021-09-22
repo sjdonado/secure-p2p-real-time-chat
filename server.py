@@ -9,7 +9,7 @@ from Crypto.Cipher import AES
 from lib.ECPoint import ECPoint
 from lib.Parameters import Parameters
 from lib.CustomSocket import CustomSocket
-from lib.config import HOST, PORT, XA, XB, YA, YB
+from lib.config import HOST, PORT, XA, XB, YA, YB, SERVER_CONFIG_PATH
 
 BD = {'Ricardo':'Ricardo'}
 
@@ -18,8 +18,9 @@ class Server(Thread, CustomSocket):
         Thread.__init__(self)
         self.sock = socket
         self.addr = address
-        self.identifier=identifier
-        self.parameters=parameters
+        self.identifier = identifier
+        self.parameters = parameters
+        self.server_config = self.read_server_config(SERVER_CONFIG_PATH)
         self.start()
 
     def retrieve(self, ID):
@@ -58,7 +59,7 @@ class Server(Thread, CustomSocket):
 
             array=self.encodeArray(L)
 
-            self.send(self.encodeArray([array]) )
+            self.send(self.encodeArray([array]))
 
             U2=self.parameters.A.point_multiplication(K)
 
@@ -100,7 +101,6 @@ if __name__ == '__main__':
     print (f"Server started and listening in {HOST}:{PORT}")
 
     identifier='Server'
-    nbytes=16
 
     param = Parameters(XA, YA, XB, YB)
 

@@ -1,7 +1,6 @@
 from .FP import FP
 
 class ECPoint:
-
     def __init__(self,a,b,x=None,y=None):
         self.x=x
         self.y=y
@@ -12,7 +11,6 @@ class ECPoint:
         return  self.x==None and self.y==None
 
     def equals(self, Q):
-
         if isinstance(Q, self.__class__):
            if self.is_identity() and Q.is_identity():
               return True
@@ -27,24 +25,21 @@ class ECPoint:
         return False
 
     def __eq__(self, other):
-         return self.equals(other)
+        return self.equals(other)
 
     def __add__(self, Q):
         if Q.is_identity():
-           return self;
-
+           return self
 
         if self.is_identity():
-           return Q;
-
+           return Q
 
         if not self.x==Q.x:
            s = self.y-Q.y
-           s =s/ (self.x-Q.x);
+           s =s/ (self.x-Q.x)
            x =(s*s-self.x)-Q.x
            y = s*(self.x-x)-self.y
            return ECPoint(self.a,self.b,x, y)
-
 
         else:
            if self.y==Q.y:
@@ -71,17 +66,15 @@ class ECPoint:
 
 
     def double(self):
-
         if  self.is_identity():
             return ECPoint(self.a,self.b)
 
         if  self.y.rep==0:
             return ECPoint(self.a,self.b)
 
-
-        three = FP(3,self.a.p);
-        two = FP(2,self.a.p);
-        s = three * (self.x ** 2);
+        three = FP(3,self.a.p)
+        two = FP(2,self.a.p)
+        s = three * (self.x ** 2)
         s = s+self.a
         s = s/ (two *self.y)
 
@@ -91,12 +84,10 @@ class ECPoint:
         return ECPoint(self.a,self.b,x, y)
 
     def __sub__(self, P):
-
-          return self+P.inverse()
+        return self+P.inverse()
 
 
     def point_multiplication(self, n):
-
         if n<0:
           n1=-n
           P=self.inverse()
@@ -104,15 +95,15 @@ class ECPoint:
           n1=n
           P=self
 
-        T = ECPoint(self.a,self.b) ;
+        T = ECPoint(self.a,self.b)
 
         for k in range(n1.bit_length() - 1,-1,-1):
             T = T.double()
-
             if (n1>>k)&1:
                 T = T + P
 
         return T
+
     def to_bytes(self):
         pp=self.x.p
         cx=self.x.rep
@@ -122,7 +113,6 @@ class ECPoint:
 
     @staticmethod
     def point_from_bytes(a,b,f_array):
-
         lt=(a.p.bit_length()+7)//8
         if len(f_array)==2*lt:
             x=FP(int.from_bytes( f_array[:lt], byteorder='big'),a.p)
@@ -132,6 +122,6 @@ class ECPoint:
            raise RuntimeError("Array length is not expected")
 
     def __str__(self):
-         if self.is_identity():
+        if self.is_identity():
             return "I"
-         return '('+str(self.x.rep)+','+str(self.y.rep)+')'
+        return '('+str(self.x.rep)+','+str(self.y.rep)+')'
