@@ -44,6 +44,11 @@ def generate_server_config(id_client, id_server, client_password, count=50000):
     if os.path.exists(SERVER_CONFIG_PATH):
         with open(SERVER_CONFIG_PATH) as server_config_f:
             server_config_data = json.load(server_config_f)
+
+        for elem in server_config_data:
+            if elem['id_client'] == id_client:
+               server_config_data.remove(elem)
+               break
     else:
         server_config_data = []
 
@@ -58,7 +63,7 @@ def generate_server_config(id_client, id_server, client_password, count=50000):
     with open(SERVER_CONFIG_PATH, 'w') as json_file:
         json.dump(server_config_data, json_file, indent=4)
 
-    print(f"{SERVER_CONFIG_PATH} generated! Pre-registration completed successfully")
+    print(f"{SERVER_CONFIG_PATH} created/updated!")
 
 if __name__ == '__main__':
     args = init_cli()

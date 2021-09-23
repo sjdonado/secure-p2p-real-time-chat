@@ -33,10 +33,13 @@ def init_cli():
                         dest="server_interactive_session", default=False,
                         action='store_true', help='Connect to server and send commands')
 
+    parser.add_argument('-v', '--verbose', dest="verbose", default=False,
+                    action='store_true', help='Display chiphertext and keys')
+
     return parser.parse_args()
 
 class Client(Thread, CustomSocket):
-    def __init__(self, socket, id_client, parameters, AES_key=None, AES_nonce=None):
+    def __init__(self, socket, id_client, parameters, AES_key=None, AES_nonce=None, verbose=False):
         Thread.__init__(self)
         self.sock = socket
         self.parameters = parameters
@@ -44,9 +47,10 @@ class Client(Thread, CustomSocket):
         self.server_config = self.get_server_config_by_client(id_client)
         self.AES_key = AES_key
         self.AES_nonce = AES_nonce
+        self.verbose = verbose
         self.start()
 
-    def open_secure_channel(self):
+    def client_server_key_exchange(self):
         alpha = random.randint(1, self.parameters.q-1)
 
         U1 = self.parameters.G.point_multiplication(alpha)
@@ -58,6 +62,8 @@ class Client(Thread, CustomSocket):
 
         L = [ubytes, id_client]
         self.send_array(L)
+
+        id_client = id_client.decode('utf-8')
 
         L = self.receive_array()
         vbytes = L[0]
@@ -93,29 +99,43 @@ class Client(Thread, CustomSocket):
 
     def server_interactive_session(self):
         self.connect(SERVER_HOSTNAME, SERVER_PORT)
-        self.open_secure_channel()
+        self.client_server_key_exchange()
         print(f"**Successfully connected to {self.id_server}**")
+
+        if self.verbose:
+            print('(AES_key + AES_nonce):', self.AES_key.hex(), self.AES_nonce)
 
         print('Allowed commands: ip_signup, get_ip, update_ip, update_pass, exit')
         print('Send COMMAND=ARG1,ARG2,...')
         print('Example: ip_signup=127.0.0.1:8001')
+        print('Example: get_ip=user_a')
+        print('Example: update_ip=127.0.0.1:8003')
+        print('Example: update_pass=newpass')
+
         while True:
-            message = input('> ')
-            self.encrypt_and_send(message)
+            try:
+                message = input('> ')
+                self.encrypt_and_send(message)
 
-            if message == 'exit':
-                break
+                if message == 'exit':
+                    break
 
-            response = self.receive_and_decrypt()
-            print(f"[{self.id_server}]", response)
+                response = self.receive_and_decrypt()
+                print(f"[{self.id_server}]", response)
 
-            if message == 'update_pass':
-                self.server_config = self.get_server_config_by_client(self.id_client)
-                break
+                if 'update_pass' in message:
+                    self.server_config = self.get_server_config_by_client(self.id_client)
+                    self.encrypt_and_send('exit')
+                    break
+            except Exception as e:
+                print(e)
 
         self.sock.close()
 
     def start_chat_send_channel(self):
+        if self.verbose:
+            print('(send_channel: AES_key + AES_nonce):', self.AES_key.hex(), self.AES_nonce)
+
         while True:
             message = input('> ')
             self.encrypt_and_send(message)
@@ -126,6 +146,9 @@ class Client(Thread, CustomSocket):
         self.sock.close()
 
     def chat_listen_channel(self, client_id):
+        if self.verbose:
+            print('(listen_channel: AES_key + AES_nonce):', self.AES_key.hex(), self.AES_nonce)
+
         while True:
             try:
                 message = self.receive_and_decrypt()
@@ -141,12 +164,12 @@ class Client(Thread, CustomSocket):
     def start_chat_listen_channel(self, client_id):
         Thread(target=self.chat_listen_channel, args=(client_id,)).start()
 
-def open_client_socket(id_client, parameters, AES_key=None, AES_nonce=None):
+def open_client_socket(id_client, parameters, AES_key=None, AES_nonce=None, verbose=False):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    return Client(client_socket, id_client, parameters, AES_key, AES_nonce)
+    return Client(client_socket, id_client, parameters, AES_key, AES_nonce, verbose)
 
-def open_server_socket(id_client, host, port, AES_key=None, AES_nonce=None):
+def open_server_socket(id_client, host, port, parameters, AES_key=None, AES_nonce=None, verbose=False):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((host, port))
     server_socket.listen()
@@ -154,7 +177,7 @@ def open_server_socket(id_client, host, port, AES_key=None, AES_nonce=None):
 
     client_a_socket, address = server_socket.accept()
 
-    return Client(client_a_socket, id_client, parameters, AES_key, AES_nonce)
+    return Client(client_a_socket, id_client, parameters, AES_key, AES_nonce, verbose)
 
 def get_client_shared_keys(k_enc, k_mac, id_client_a, id_client_b, r_a, r_b, m, c, t):
     h = HMAC.new(k_mac, digestmod=SHA256)
@@ -194,13 +217,14 @@ if __name__ == '__main__':
     point_a = args.point_a
     point_b = args.point_b
     server_interactive_session = args.server_interactive_session
+    verbose = args.verbose
 
     [client_ip, client_port] = client_host.split(':')
     client_port = int(client_port)
 
     parameters = Parameters(XA, YA, XB, YB)
 
-    client_server = open_client_socket(id_client, parameters)
+    client_server = open_client_socket(id_client, parameters, verbose=verbose)
 
     if server_interactive_session:
         client_server.server_interactive_session()
@@ -209,7 +233,7 @@ if __name__ == '__main__':
     if point_b:
         """ Client A"""
         client_server.connect(SERVER_HOSTNAME, SERVER_PORT)
-        client_server.open_secure_channel()
+        client_server.client_server_key_exchange()
 
         client_server.encrypt_and_send(f"ip_signup={client_ip}:{client_port}")
         message = client_server.receive_and_decrypt()
@@ -223,7 +247,7 @@ if __name__ == '__main__':
         [client_b_ip, client_b_port] = message.split(':')
         client_b_port = int(client_b_port)
 
-        client_a = open_client_socket(id_client, parameters)
+        client_a = open_client_socket(id_client, parameters, verbose=verbose)
         client_a.connect(client_b_ip, client_b_port)
 
         r_a = str(random.randint(1, MAX_128_INT))
@@ -251,7 +275,8 @@ if __name__ == '__main__':
         print(f"**Successfully conneted to {id_client_b}**")
 
         server_a = open_server_socket(id_client, client_ip, client_port,
-                                      AES_key=k_ab, AES_nonce=N)
+                                      parameters, AES_key=k_ab, AES_nonce=N,
+                                      verbose=verbose)
         server_a.start_chat_listen_channel(id_client_b)
 
         client_a.AES_key = k_ba
@@ -261,7 +286,7 @@ if __name__ == '__main__':
     if point_a:
         """ Client B"""
         client_server.connect(SERVER_HOSTNAME, SERVER_PORT)
-        client_server.open_secure_channel()
+        client_server.client_server_key_exchange()
 
         client_server.encrypt_and_send(f"ip_signup={client_ip}:{client_port}")
         message = client_server.receive_and_decrypt()
@@ -269,14 +294,15 @@ if __name__ == '__main__':
         k_enc_b = bytes.fromhex(k_enc_b)
         k_mac_b = bytes.fromhex(k_mac_b)
 
-        server_b = open_server_socket(id_client, client_ip, client_port)
+        server_b = open_server_socket(id_client, client_ip, client_port,
+                                      parameters, verbose=verbose)
         message = server_b.receive_array()
         r_a = message[0].decode('utf-8')
         id_client_a = message[1].decode('utf-8')
 
         r_b = str(random.randint(1, MAX_128_INT))
 
-        message = f"connect_clients={r_a},{r_b},{id_client_a},{id_client}"
+        message = f"clients_key_exchange={r_a},{r_b},{id_client_a},{id_client}"
         client_server.encrypt_and_send(message)
         message = client_server.receive_and_decrypt()
 
@@ -303,7 +329,6 @@ if __name__ == '__main__':
         server_b.AES_nonce = N
         server_b.start_chat_listen_channel(id_client_a)
 
-        client_b = open_client_socket(id_client, parameters, AES_key=k_ab, AES_nonce=N)
+        client_b = open_client_socket(id_client, parameters, AES_key=k_ab, AES_nonce=N, verbose=verbose)
         client_b.connect(client_a_ip, client_a_port)
         client_b.start_chat_send_channel()
-

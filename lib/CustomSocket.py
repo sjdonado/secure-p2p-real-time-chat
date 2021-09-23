@@ -84,7 +84,6 @@ class CustomSocket:
         return message.decode('utf-8')
 
     def store_secure_credentials(self, k, id_client, id_server):
-        print('k:', k.hex())
         keyblob = self.parameters.get_unique_H(4, [k], n=44)
         key = keyblob[:32]
         nonce = int.from_bytes(keyblob[32:], 'big')
@@ -109,7 +108,9 @@ class CustomSocket:
         message = self.receive()
         tag = message[16:]
         ciphertext = message[:16]
-        print('(ciphertext):', message.hex())
+
+        if self.verbose:
+            print('(ciphertext):', message.hex())
 
         noncebytes = self.AES_nonce.to_bytes(13, byteorder='big')
         cipher = AES.new(self.AES_key, AES.MODE_GCM, nonce=noncebytes)

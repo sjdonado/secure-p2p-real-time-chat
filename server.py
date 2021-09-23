@@ -3,6 +3,7 @@
 import time
 import socket
 import random
+import argparse
 from threading import *
 
 from Crypto.Cipher import AES
@@ -17,15 +18,25 @@ from pre_register import generate_server_config
 
 IP_DATABASE = {}
 
+def init_cli():
+    parser = argparse.ArgumentParser(description='The sever stores the IP data of all clients')
+
+    parser.add_argument('-v', '--verbose', dest="verbose", default=False,
+                    action='store_true', help='Display chiphertext and keys')
+
+    return parser.parse_args()
+
+
 class Server(Thread, CustomSocket):
-    def __init__(self, socket, address, parameters):
+    def __init__(self, socket, address, parameters, verbose=False):
         Thread.__init__(self)
         self.sock = socket
         self.addr = address
         self.parameters = parameters
+        self.verbose = verbose
         self.start()
 
-    def open_secure_channel(self):
+    def client_server_key_exchange(self):
         L = self.receive_array()
         ubytes = L[0]
         id_client = L[1].decode('utf-8')
@@ -46,6 +57,8 @@ class Server(Thread, CustomSocket):
 
         L = [vbytes, id_server]
         self.send_array(L)
+
+        id_server = id_server.decode('utf-8')
 
         W1 = self.parameters.A.point_multiplication(server_config['pi_0'])
         W = (U - W1).point_multiplication(beta)
@@ -111,13 +124,16 @@ class Server(Thread, CustomSocket):
         if IP_DATABASE.get(self.id_client) is None:
             self.encrypt_and_send(f"{self.id_client} not registered")
         else:
-            IP_DATABASE[self.id_client][0] = ip
-            self.encrypt_and_send(f"{self.id_client} -> {ip} updated!")
+            IP_DATABASE[self.id_client]['ip'] = ip
+            self.encrypt_and_send('IP updated!')
 
     def update_pass(self, args_arr):
         client_password = args_arr[0]
+        print(self.id_client)
+        print(self.id_server)
+        print(client_password)
         generate_server_config(self.id_client, self.id_server, client_password)
-        self.encrypt_and_send(f"Password saved!")
+        self.encrypt_and_send('Password saved!, reopen connection to continue')
 
     def get_c_and_t(self, k_enc, k_mac, id_client, k, r_a, r_b):
         h_256 = SHAKE256.new()
@@ -134,7 +150,7 @@ class Server(Thread, CustomSocket):
 
         return (c, t)
 
-    def connect_clients(self, args_arr):
+    def clients_key_exchange(self, args_arr):
         [r_a, r_b, id_client_a, id_client_b] = args_arr
 
         client_data_a = IP_DATABASE.get(id_client_a)
@@ -185,15 +201,14 @@ class Server(Thread, CustomSocket):
             'get_ip': self.get_ip,
             'update_ip': self.update_ip,
             'update_pass': self.update_pass,
-            'connect_clients': self.connect_clients,
+            'clients_key_exchange': self.clients_key_exchange,
             'get_keys': self.get_keys,
         }
         COMMANDS.get(command, self.default_command)(args_arr)
 
     def run(self):
         try:
-            self.open_secure_channel()
-
+            self.client_server_key_exchange()
             while True:
                 message = self.receive_and_decrypt()
                 print(f"Message received from {self.id_client}:", message)
@@ -202,15 +217,14 @@ class Server(Thread, CustomSocket):
                     break
 
                 self.execute_command(message)
-
-                if 'update_pass' in message:
-                    break
         except Exception as e:
             print(e)
 
         self.sock.close()
 
 if __name__ == '__main__':
+    args = init_cli()
+    verbose = args.verbose
     parameters = Parameters(XA, YA, XB, YB)
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -220,4 +234,4 @@ if __name__ == '__main__':
 
     while True:
         client_socket, address = server_socket.accept()
-        Server(client_socket, address, parameters)
+        Server(client_socket, address, parameters, verbose=verbose)
