@@ -36,12 +36,14 @@ def init_cli():
     return parser.parse_args()
 
 class Client(Thread, CustomSocket):
-    def __init__(self, socket, id_client, parameters):
+    def __init__(self, socket, id_client, parameters, AES_key=None, AES_nonce=None):
         Thread.__init__(self)
         self.sock = socket
         self.parameters = parameters
         self.id_client = id_client
         self.server_config = self.get_server_config_by_client(id_client)
+        self.AES_key = AES_key
+        self.AES_nonce = AES_nonce
         self.start()
 
     def open_secure_channel(self):
@@ -89,11 +91,10 @@ class Client(Thread, CustomSocket):
 
         self.store_secure_credentials(k, id_client, id_server)
 
-        print(f"**Successfully conneted to {id_server}**")
-
     def server_interactive_session(self):
         self.connect(SERVER_HOSTNAME, SERVER_PORT)
         self.open_secure_channel()
+        print(f"**Successfully conneted to {self.id_server}**")
 
         print('Allowed commands: ip_signup, get_ip, update_ip, update_pass, exit')
         print('Send COMMAND=ARG1,ARG2,...')
@@ -114,21 +115,75 @@ class Client(Thread, CustomSocket):
 
         self.sock.close()
 
-def open_client_socket(id_client, parameters):
+    def start_chat_send_channel(self):
+        while True:
+            message = input('> ')
+            self.encrypt_and_send(message)
+
+            if message == 'exit':
+                break
+
+        self.sock.close()
+
+    def start_chat_listen_channel(self):
+        while True:
+            try:
+                message = self.receive_and_decrypt()
+                print('[received]:', message)
+
+                if message == 'exit':
+                    break
+            except Exception as e:
+                print(e)
+
+        self.sock.close()
+
+def open_client_socket(id_client, parameters, AES_key=None, AES_nonce=None):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    return Client(client_socket, id_client, parameters)
+    return Client(client_socket, id_client, parameters, AES_key, AES_nonce)
 
-def open_server_socket(id_client, host, port):
+def open_server_socket(id_client, host, port, AES_key=None, AES_nonce=None):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((host, port))
     server_socket.listen()
 
-    print(f"Wainting for connections")
+    print(f"Server initialized, wainting for connections")
 
     client_a_socket, address = server_socket.accept()
 
-    return Client(client_a_socket, id_client, parameters)
+    return Client(client_a_socket, id_client, parameters, AES_key, AES_nonce)
+
+def get_client_shared_keys(k_enc, k_mac, id_client_a, id_client_b, r_a, r_b, m, c, t):
+    h = HMAC.new(k_mac, digestmod=SHA256)
+    h.update(m)
+
+    if h.hexdigest() != t:
+        raise ValueError('MAC not valid')
+
+    h_256 = SHAKE256.new()
+    h_256.update(k_enc)
+    nonce = h_256.read(12)
+
+    cipher = AES.new(k_enc, mode=AES.MODE_CCM, nonce=nonce)
+    k = cipher.decrypt(bytes.fromhex(c))
+
+    if int.from_bytes(k, byteorder='big') > MAX_128_INT**2:
+        raise ValueError('k out of range')
+
+    data = [
+        bytes(id_client_a, 'utf-8'),
+        bytes(id_client_b, 'utf-8'),
+        bytes(r_a, 'utf_8'),
+        bytes(r_b, 'utf_8')
+    ]
+
+    keys = parameters.get_unique_H(6, data, n=76)
+    k_ab = keys[:32]
+    k_ba = keys[32:64]
+    N = keys[64:]
+
+    return ((k_ab, k_ba), N)
 
 if __name__ == '__main__':
     args = init_cli()
@@ -138,9 +193,8 @@ if __name__ == '__main__':
     point_b = args.point_b
     server_interactive_session = args.server_interactive_session
 
-    client_host_data = client_host.split(':')
-    client_ip = client_host_data[0]
-    client_port = int(client_host_data[1])
+    [client_ip, client_port] = client_host.split(':')
+    client_port = int(client_port)
 
     parameters = Parameters(XA, YA, XB, YB)
 
@@ -157,26 +211,48 @@ if __name__ == '__main__':
 
         client_server.encrypt_and_send(f"ip_signup={client_ip}:{client_port}")
         message = client_server.receive_and_decrypt()
-        client_data_a = message.split(',')
-        k_enc_a = client_data_a[1]
-        k_mac_a = client_data_a[2]
+        [ip, k_enc_a, k_mac_a] = message.split(',')
+        k_enc_a = bytes.fromhex(k_enc_a)
+        k_mac_a = bytes.fromhex(k_mac_a)
 
         client_server.encrypt_and_send(f"get_ip={point_b}")
         message = client_server.receive_and_decrypt()
+
+        [client_b_ip, client_b_port] = message.split(':')
+        client_b_port = int(client_b_port)
+
+        client_a = open_client_socket(id_client, parameters)
+        client_a.connect(client_b_ip, client_b_port)
+
+        r_a = str(random.randint(1, MAX_128_INT))
+
+        client_a.send_array([bytes(r_a, 'utf-8'), bytes(id_client, 'utf-8')])
+
+        client_b_status = client_a.receive_message()
+        if client_b_status != 'status:done':
+            print('Error on client_b')
+            sys.exit(0)
+
+        client_server.encrypt_and_send(f"get_keys")
+        message = client_server.receive_and_decrypt()
         client_server.close()
+        [id_client_b, r_b, c_a, t_a] = message.split(',')
 
-        ip_data = message.split(':')
-        client_b_ip = ip_data[0]
-        client_b_port = int(ip_data[1])
+        m = bytes(id_client_b + r_a + r_b + c_a, 'utf-8')
+        (shared_keys, N) = get_client_shared_keys(k_enc_a, k_mac_a, id_client,
+                                                    id_client_b, r_a, r_b, m, c_a,
+                                                    t_a)
+        [k_ab, k_ba] = shared_keys
 
-        client_b = open_client_socket(id_client, parameters)
-        client_b.connect(client_b_ip, client_b_port)
+        N = int.from_bytes(N, 'big')
 
-        r_a = random.randint(1, MAX_128_INT).to_bytes(16, 'big')
+        # server_a = open_server_socket(id_client, client_ip, client_port,
+        #                               AES_key=k_ab, AES_nonce=N)
+        # server_a.start_chat_listen_channel()
 
-        client_b.send_array([r_a, bytes(id_client, 'utf-8')])
-
-        sys.exit(0)
+        client_a.AES_key = k_ba
+        client_a.AES_nonce = N
+        client_a.start_chat_send_channel()
 
     if point_a:
         """ Client B"""
@@ -185,15 +261,13 @@ if __name__ == '__main__':
 
         client_server.encrypt_and_send(f"ip_signup={client_ip}:{client_port}")
         message = client_server.receive_and_decrypt()
-        client_data_b = message.split(',')
-        k_enc_b = bytes.fromhex(client_data_b[1])
-        k_mac_b = bytes.fromhex(client_data_b[2])
+        [ip, k_enc_b, k_mac_b] = message.split(',')
+        k_enc_b = bytes.fromhex(k_enc_b)
+        k_mac_b = bytes.fromhex(k_mac_b)
 
-        server_client_a = open_server_socket(id_client, client_ip, client_port)
-        message = server_client_a.receive_array()
-        server_client_a.close()
-
-        r_a = str(int.from_bytes(message[0], byteorder='big'))
+        server_b = open_server_socket(id_client, client_ip, client_port)
+        message = server_b.receive_array()
+        r_a = message[0].decode('utf-8')
         id_client_a = message[1].decode('utf-8')
 
         r_b = str(random.randint(1, MAX_128_INT))
@@ -203,31 +277,20 @@ if __name__ == '__main__':
         message = client_server.receive_and_decrypt()
         client_server.close()
 
-        connect_clients_data = message.split(',')
-        c_b = connect_clients_data[0]
-        t_b = connect_clients_data[1]
+        [c_b, t_b] = message.split(',')
 
         m = bytes(id_client_a + r_a + r_b + c_b, 'utf-8')
-        h = HMAC.new(k_mac_b, digestmod=SHA256)
-        h.update(m)
+        (shared_keys, N) = get_client_shared_keys(k_enc_b, k_mac_b, id_client_a,
+                                                  id_client, r_a, r_b, m, c_b, t_b)
+        [k_ab, k_ba] = shared_keys
 
-        if h.hexdigest() != t_b:
-            raise ValueError('MAC not valid')
+        server_b.send_message('status:done')
 
-        h_256 = SHAKE256.new()
-        h_256.update(k_enc_b)
-        nonce = h_256.read(12)
+        server_b.AES_key = k_ba
+        server_b.AES_nonce = int.from_bytes(N, 'big')
+        server_b.start_chat_listen_channel()
 
-        cipher = AES.new(k_enc_b, mode=AES.MODE_CCM, nonce=nonce)
-        k = cipher.decrypt(bytes.fromhex(c_b))
-
-        if int.from_bytes(k, byteorder='big') > MAX_128_INT**2:
-            raise ValueError('k out of range')
-
-        keys = parameters.get_unique_H(6, [id_client_a, id_client, r_a, r_b, k], n=76)
-        k_ab = keys[:32]
-        k_ba = keys[32:64]
-        N = keys[64:]
-
-        print(k_ab.hex(), k_ba.hex(), N.hex())
+        # client_b = open_client_socket(id_client, parameters, AES_key=k_ab, AES_nonce=N)
+        # client_b.connect()
+        # client_b.start_chat_send_channel()
 

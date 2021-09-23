@@ -108,7 +108,7 @@ class CustomSocket:
 
         self.AES_nonce = (self.AES_nonce+1)& AES_NONCE_MASK
 
-    def receive_and_decrypt(self, array=False):
+    def receive_and_decrypt(self):
         message = self.receive()
         tag = message[16:]
         ciphertext = message[:16]
