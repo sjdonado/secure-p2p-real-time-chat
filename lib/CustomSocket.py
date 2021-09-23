@@ -11,9 +11,6 @@ class CustomSocket:
     def connect(self, host, port):
         self.sock.connect((host, port))
 
-    def close(self):
-        self.sock.close()
-
     def get_server_config_by_client(self, id_client):
         with open(SERVER_CONFIG_PATH) as server_config_f:
             server_config_data = json.load(server_config_f)
@@ -112,6 +109,7 @@ class CustomSocket:
         message = self.receive()
         tag = message[16:]
         ciphertext = message[:16]
+        print('(ciphertext):', message.hex())
 
         noncebytes = self.AES_nonce.to_bytes(13, byteorder='big')
         cipher = AES.new(self.AES_key, AES.MODE_GCM, nonce=noncebytes)

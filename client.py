@@ -94,7 +94,7 @@ class Client(Thread, CustomSocket):
     def server_interactive_session(self):
         self.connect(SERVER_HOSTNAME, SERVER_PORT)
         self.open_secure_channel()
-        print(f"**Successfully conneted to {self.id_server}**")
+        print(f"**Successfully connected to {self.id_server}**")
 
         print('Allowed commands: ip_signup, get_ip, update_ip, update_pass, exit')
         print('Send COMMAND=ARG1,ARG2,...')
@@ -107,7 +107,7 @@ class Client(Thread, CustomSocket):
                 break
 
             response = self.receive_and_decrypt()
-            print('[server]:', response)
+            print(f"[{self.id_server}]", response)
 
             if message == 'update_pass':
                 self.server_config = self.get_server_config_by_client(self.id_client)
@@ -125,11 +125,11 @@ class Client(Thread, CustomSocket):
 
         self.sock.close()
 
-    def start_chat_listen_channel(self):
+    def chat_listen_channel(self, client_id):
         while True:
             try:
                 message = self.receive_and_decrypt()
-                print('[received]:', message)
+                print(f"[{client_id}]:", message)
 
                 if message == 'exit':
                     break
@@ -137,6 +137,9 @@ class Client(Thread, CustomSocket):
                 print(e)
 
         self.sock.close()
+
+    def start_chat_listen_channel(self, client_id):
+        Thread(target=self.chat_listen_channel, args=(client_id,)).start()
 
 def open_client_socket(id_client, parameters, AES_key=None, AES_nonce=None):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -147,8 +150,7 @@ def open_server_socket(id_client, host, port, AES_key=None, AES_nonce=None):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((host, port))
     server_socket.listen()
-
-    print(f"Server initialized, wainting for connections")
+    print (f"Server listening at {host}:{port}")
 
     client_a_socket, address = server_socket.accept()
 
@@ -181,7 +183,7 @@ def get_client_shared_keys(k_enc, k_mac, id_client_a, id_client_b, r_a, r_b, m, 
     keys = parameters.get_unique_H(6, data, n=76)
     k_ab = keys[:32]
     k_ba = keys[32:64]
-    N = keys[64:]
+    N = int.from_bytes(keys[64:], 'big')
 
     return ((k_ab, k_ba), N)
 
@@ -235,7 +237,9 @@ if __name__ == '__main__':
 
         client_server.encrypt_and_send(f"get_keys")
         message = client_server.receive_and_decrypt()
-        client_server.close()
+        client_server.encrypt_and_send('exit')
+        client_server.sock.close()
+
         [id_client_b, r_b, c_a, t_a] = message.split(',')
 
         m = bytes(id_client_b + r_a + r_b + c_a, 'utf-8')
@@ -244,11 +248,11 @@ if __name__ == '__main__':
                                                     t_a)
         [k_ab, k_ba] = shared_keys
 
-        N = int.from_bytes(N, 'big')
+        print(f"**Successfully conneted to {id_client_b}**")
 
-        # server_a = open_server_socket(id_client, client_ip, client_port,
-        #                               AES_key=k_ab, AES_nonce=N)
-        # server_a.start_chat_listen_channel()
+        server_a = open_server_socket(id_client, client_ip, client_port,
+                                      AES_key=k_ab, AES_nonce=N)
+        server_a.start_chat_listen_channel(id_client_b)
 
         client_a.AES_key = k_ba
         client_a.AES_nonce = N
@@ -275,7 +279,6 @@ if __name__ == '__main__':
         message = f"connect_clients={r_a},{r_b},{id_client_a},{id_client}"
         client_server.encrypt_and_send(message)
         message = client_server.receive_and_decrypt()
-        client_server.close()
 
         [c_b, t_b] = message.split(',')
 
@@ -286,11 +289,21 @@ if __name__ == '__main__':
 
         server_b.send_message('status:done')
 
-        server_b.AES_key = k_ba
-        server_b.AES_nonce = int.from_bytes(N, 'big')
-        server_b.start_chat_listen_channel()
+        client_server.encrypt_and_send(f"get_ip={point_a}")
+        message = client_server.receive_and_decrypt()
+        client_server.encrypt_and_send('exit')
+        client_server.sock.close()
 
-        # client_b = open_client_socket(id_client, parameters, AES_key=k_ab, AES_nonce=N)
-        # client_b.connect()
-        # client_b.start_chat_send_channel()
+        [client_a_ip, client_a_port] = message.split(':')
+        client_a_port = int(client_a_port)
+
+        print(f"**Successfully conneted to {id_client_a}**")
+
+        server_b.AES_key = k_ba
+        server_b.AES_nonce = N
+        server_b.start_chat_listen_channel(id_client_a)
+
+        client_b = open_client_socket(id_client, parameters, AES_key=k_ab, AES_nonce=N)
+        client_b.connect(client_a_ip, client_a_port)
+        client_b.start_chat_send_channel()
 

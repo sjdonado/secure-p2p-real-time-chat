@@ -216,7 +216,7 @@ if __name__ == '__main__':
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((SERVER_HOSTNAME, SERVER_PORT))
     server_socket.listen()
-    print (f"Server started and listening in {SERVER_HOSTNAME}:{SERVER_PORT}")
+    print (f"Server listening at {SERVER_HOSTNAME}:{SERVER_PORT}")
 
     while True:
         client_socket, address = server_socket.accept()
