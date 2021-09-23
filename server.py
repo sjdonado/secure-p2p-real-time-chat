@@ -129,9 +129,6 @@ class Server(Thread, CustomSocket):
 
     def update_pass(self, args_arr):
         client_password = args_arr[0]
-        print(self.id_client)
-        print(self.id_server)
-        print(client_password)
         generate_server_config(self.id_client, self.id_server, client_password)
         self.encrypt_and_send('Password saved!, reopen connection to continue')
 
